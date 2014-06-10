@@ -14,6 +14,7 @@ import javax.xml.rpc.ServiceException;
 
 import org.pathvisio.core.model.ConverterException;
 import org.pathvisio.core.model.Pathway;
+import org.pathvisio.core.model.PathwayElement;
 import org.pathvisio.wikipathways.webservice.WSCurationTag;
 import org.pathvisio.wikipathways.webservice.WSPathwayInfo;
 import org.wikipathways.client.WikiPathwaysClient;
@@ -30,22 +31,28 @@ public class WpReactomeUploader {
 	 * @param args
 	 */
 	public static void main (String [] args) {
-		if(args.length == 5) {
-			String organism = args[0];
-			String pathwayDir = args[1];
-			String username = args[2];
-			String password = args[3];
-			String comment = args[4];
+		System.out.println(args.length);
+		if(args.length == 4) {
+			String organism = "Homo sapiens";
+			String pathwayDir = args[0];
+			String username = args[1];
+			String password = args[2];
+			String comment = args[3];
+									
 			WpReactomeUploader uploader;
 			try {
 				uploader = new WpReactomeUploader(organism, new File(pathwayDir), username, password, comment);
 				try {
-					
+					// System.out.println("reaches");
 					if(uploader.checkPathwayDir() && uploader.checkOrganism()) {
 						System.out.println("pathway directory and organism are valid.\nretrieve pathways...");
-						uploader.retrieveReatomePathways();
+						uploader.retrieveReactomePathways();
+						System.out.println(reactomePathwaysIDList);
+						System.out.println(reactomePathwaysIDList.size());
 						uploader.readGpmlFiles();
 						uploader.replacePathways();
+
+//						uploader.findMetapathways();
 					}
 				} catch (Exception e) {
 					System.out.println("could not retrieve pathways from wikipathways\n" + e.getMessage());
@@ -60,22 +67,31 @@ public class WpReactomeUploader {
 		}
 	}
 
-	private static String wikipathwaysURL = "http://test2.wikipathways.org/wpi/webservice/webservice.php"; 
-	private Map<String, WSPathwayInfo> reactomePathways;
-	private WikiPathwaysClient client;
-	private String organism;
-	private File pathwayDir;
-	private Map<String, Pathway> pathwaysToUpload;
+//	private static String wikipathwaysURL = "http://test2.wikipathways.org/wpi/webservice/webservice.php"; 
+	private static String wikipathwaysURL = "http://wikipathways.org/wpi/webservice/webservice.php";
+	private final Map<String, WSPathwayInfo> reactomePathways;
+	private static Map<String, String> reactomePathwaysIDList;
+	private final WikiPathwaysClient client;
+	private final String organism;
+	private final File pathwayDir;
+	private final Map<String, Pathway> pathwaysToUpload;
+	private final Map<String, String> wpReactomeIdMapper;
 	
-	private String username;
-	private String password;
-	private String comment;
+	private final String username;
+	private final String password;
+	private final String comment;
 	
+	private final List<String> updatedPathways;
+	private final List<String> newPathways;
+	private final List<String> deletedPathways;
+
 	public WpReactomeUploader(String organism, File pathwayDir, String username, String password, String comment) throws MalformedURLException, ServiceException {
 		reactomePathways = new HashMap<String, WSPathwayInfo>();
+		reactomePathwaysIDList = new HashMap<String, String>();
 		client = new WikiPathwaysClient(new URL(wikipathwaysURL));
 		this.organism = organism;
 		this.pathwayDir = pathwayDir;
+		wpReactomeIdMapper = new HashMap<String, String>();
 		pathwaysToUpload = new HashMap<String, Pathway>();
 		updatedPathways = new ArrayList<String>();
 		newPathways = new ArrayList<String>();
@@ -101,10 +117,6 @@ public class WpReactomeUploader {
 		return false;
 	}
 	
-	private List<String> updatedPathways;
-	private List<String> newPathways;
-	private List<String> deletedPathways;
-	
 	public void replacePathways() {
 		// TODO: filter out meta-pathways!
 		try {
@@ -120,12 +132,13 @@ public class WpReactomeUploader {
 				try{
 					System.out.println("UPDATING\t" + name + "\t" + id);
 					String revision = reactomePathways.get(name).getRevision();
+					System.out.println("revision"+revision);
 					client.updatePathway(id, p, comment, Integer.parseInt(revision));
 					WSPathwayInfo info = client.getPathwayInfo(id);
-					client.saveCurationTag(id, "Curation:Reactome_Approved", comment, Integer.parseInt(info.getId()));
-					updatedPathways.add(id + ": " + name);
+					client.saveCurationTag(info.getId(), "Curation:Reactome_Approved", comment, Integer.parseInt(info.getRevision()));
+					updatedPathways.add(info.getId() + ": " + name);
 				} catch(Exception e) {
-					System.out.println("could not update pathways or curation tag for WP" + id);
+					System.out.println("could not update pathways or curation tag for " + id);
 				}
 			} else {
 				try {
@@ -156,6 +169,16 @@ public class WpReactomeUploader {
 				try {
 					Pathway pathway = new Pathway();
 					pathway.readFromXml(file, true);
+					/*
+					 * Fixing comment source for displaying WikiPathways description
+					 */
+					// if (!pathway.getMappInfo().getComments().isEmpty()){
+					// if(pathway.getMappInfo().getComments().get(0).getSource().equalsIgnoreCase("Wikipathways-description")){
+					// System.out.println("changing p to P ...");
+					// pathway.getMappInfo().getComments().get(0).setSource("WikiPathways-description");
+					// pathway.writeToXml(file, true);
+					// }
+					// }
 					if(pathway.getMappInfo().getOrganism().equals(organism)) {
 						pathwaysToUpload.put(pathway.getMappInfo().getMapInfoName(), pathway);
 					} else {
@@ -169,12 +192,39 @@ public class WpReactomeUploader {
 		}
 	}
 	
-	public void retrieveReatomePathways() throws Exception {
+	public void findMetapathways() {
+		for(File file : pathwayDir.listFiles()) {
+			if(file.getName().endsWith(".gpml")) {
+				try {
+					Pathway pathway = new Pathway();
+					pathway.readFromXml(file, true);
+					/*
+					 * Find metapathways
+					 */
+					 List<PathwayElement> pathwayElements = pathway.getDataObjects();
+					 for(PathwayElement pathwayElement : pathwayElements){
+						 if (pathwayElement.getDataNodeType().equalsIgnoreCase("Pathway")){
+							 pathwayElement.getElementID();
+							 System.out.println(file.getName());
+						 }
+					 }
+				} catch (ConverterException e) {
+					System.out.println("could not parse pathway from " + file.getAbsolutePath());
+				}
+				
+			}
+		}
+	}
+	
+	public void retrieveReactomePathways() throws Exception {
 		WSCurationTag [] tags = client.getCurationTagsByName("Curation:Reactome_Approved");
 		for(WSCurationTag tag : tags) {
 			if(tag.getPathway().getSpecies().equals(organism)) {
 				System.out.println(tag.getPathway().getName());
 				reactomePathways.put(tag.getPathway().getName(), tag.getPathway());
+				reactomePathwaysIDList.put(tag.getPathway().getName(), tag
+						.getPathway().getId());
+
 			}
 		}
 		System.out.println(reactomePathways.size() + " pathways found.");
@@ -182,6 +232,7 @@ public class WpReactomeUploader {
 	
 	private boolean checkOrganism() throws RemoteException {
 		String [] organisms = client.listOrganisms();
+		System.out.println(Arrays.asList(organisms));
 		if(Arrays.asList(organisms).contains(organism)) {
 			return true;
 		}
