@@ -19,6 +19,7 @@ import org.pathvisio.core.model.ConverterException;
 import org.pathvisio.core.model.ObjectType;
 import org.pathvisio.core.model.Pathway;
 import org.pathvisio.core.model.PathwayElement;
+import org.pathvisio.core.view.MIMShapes;
 import org.pathvisio.wikipathways.webservice.WSCurationTag;
 import org.wikipathways.client.WikiPathwaysClient;
 
@@ -37,17 +38,12 @@ public class WPReactomeMap {
 	private static Map<String, String> reactomeIDList;
 	private static Map<String, String> wpIDList;
 	private static Map<String, String> reactomeWPIDMapper;
-	private final String VERSION;
 	private final File pathwayDir;
 
-	private final String username;
-	private final String password;
 	private static String wikipathwaysURL = "http://wikipathways.org/wpi/webservice/webservice.php";
 	private final WikiPathwaysClient client;
 
-	public WPReactomeMap(File pathwayDir,
-			String version,
-			String username, String password)
+	public WPReactomeMap(File pathwayDir)
 			throws MalformedURLException,
 			ServiceException {
 		client = new WikiPathwaysClient(new URL(wikipathwaysURL));
@@ -57,22 +53,15 @@ public class WPReactomeMap {
 		reactomeIDList = new HashMap<String, String>();
 		reactomeWPIDMapper = new HashMap<String, String>();
 		this.pathwayDir = pathwayDir;
-		this.VERSION = version;
-		this.username = username;
-		this.password = password;
 	}
 
 	public static void main(String args[]) {
-		if (args.length == 4) {
+		if (args.length == 1) {
 
 			String pathwayDir = args[0];
-			String version = args[1];
-			String username = args[2];
-			String password = args[3];
 
 			try {
-				WPReactomeMap wr = new WPReactomeMap(new File(pathwayDir),
-						version, username, password);
+				WPReactomeMap wr = new WPReactomeMap(new File(pathwayDir));
 				/*
 				 * Making wpIDList
 				 */
@@ -92,22 +81,17 @@ public class WPReactomeMap {
 				 * Find WP Reactome pairs
 				 */
 
-				Set<String> wpPwyNames = wpIDList.keySet();
-
-				for (String wpName : wpPwyNames) {
+				for (String wpName : reactomeIDList.keySet()) {
 					reactomeWPIDMapper.put(reactomeIDList.get(wpName),
 							wpIDList.get(wpName));
 				}
 
 				wr.reannotatePathwayNodes();
 			} catch (MalformedURLException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			} catch (ServiceException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			} catch (RemoteException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 		} else {
@@ -121,22 +105,8 @@ public class WPReactomeMap {
 
 	}
 
-	private boolean isCurrentVersion(Pathway pwy) {
-		boolean answer = false;
-		try {
-		if (pwy.getMappInfo().getVersion()
-				.equalsIgnoreCase(VERSION)) {
-			answer = true;
-			}
-		} catch (Exception e) {
-			System.out.println("Version not set");
-		}
-		return answer;
-	}
-
 	private boolean checkOrganism() throws RemoteException {
 		String[] organisms = client.listOrganisms();
-		System.out.println(Arrays.asList(organisms));
 		if (Arrays.asList(organisms).contains(organism)) {
 			return true;
 		}
@@ -145,21 +115,14 @@ public class WPReactomeMap {
 
 	private void retrieveReactomePathways() {
 			System.out.println("Trying to connect to WikiPathways ...");
-			try {
-				client.login(username, password);
-			} catch (RemoteException e) {
-				System.out
-						.println("not able to use this user. check password and permission status.");
-			}
+
 			WSCurationTag[] tags;
 			try {
 				tags = client.getCurationTagsByName("Curation:Reactome_Approved");
 				for (WSCurationTag tag : tags) {
 					if (tag.getPathway().getSpecies()
 	.equals(organism)) {
-						System.out.println("Reactome pathway name = "
-								+ tag.getPathway().getName());
-						wpIDList.put(tag.getPathway().getName(), tag
+					wpIDList.put(tag.getPathway().getName(), tag
 								.getPathway().getId());
 		
 					}
@@ -197,26 +160,20 @@ public class WPReactomeMap {
 				try {
 					Pathway pathway = new Pathway();
 					pathway.readFromXml(file, true);
-					if (!isCurrentVersion(pathway)) {
-						pathway.getMappInfo().setVersion(VERSION);
-					}
+
 					for (PathwayElement pwe : pathway.getDataObjects()) {
 						if (pwe.getObjectType() == ObjectType.DATANODE) {
 							if (pwe.getDataNodeType().equalsIgnoreCase(
 									"pathway")) {
-								System.out.println(pathway.getMappInfo()
-										.getMapInfoName()
-										+ "has pathway node"
-										+ pwe.getTextLabel());
 								pathwayList.add(pathway.getMappInfo()
 										.getMapInfoName());
-								reactomeIDList.put(pwe.getTextLabel(),
+								String pathwayName = pwe.getTextLabel();
+								pathwayName = pathwayName.replaceAll("\n", " ");
+								reactomeIDList.put(pathwayName,
 										pwe.getElementID());
 							}
 						}
-						pathway.add(pwe);
 					}
-					pathway.writeToXml(file, true);
 				} catch (ConverterException e) {
 					errorList.add(file.getName());
 					System.out.println("could not parse pathway from "
@@ -233,18 +190,24 @@ public class WPReactomeMap {
 			if (file.getName().endsWith(".gpml")) {
 				try {
 					Pathway pathway = new Pathway();
+					MIMShapes.registerShapes();
 					pathway.readFromXml(file, true);
 					for (PathwayElement pwe : pathway.getDataObjects()) {
 						if (pwe.getObjectType() == ObjectType.DATANODE) {
 							if (pwe.getDataNodeType().equalsIgnoreCase(
 									"pathway")) {
-								Set<String> reactomeKeys = reactomeWPIDMapper.keySet();
+								Set<String> reactomeKeys = reactomeWPIDMapper
+										.keySet();
 								for (String reactomeID : reactomeKeys) {
 									if(pwe.getElementID().equalsIgnoreCase(reactomeID)) {
+										try {
 										pwe.setElementID(reactomeWPIDMapper
 												.get(reactomeID));
 								pwe.setDataSource(DataSource
 										.getBySystemCode("Wp"));
+										} catch (Exception e) {
+											errorList.add(file.getName());
+										}
 								}
 							}
 								pathway.add(pwe);
