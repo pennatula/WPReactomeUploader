@@ -97,8 +97,8 @@ public class WpReactomeUploader {
 	private Map<String, Pathway> metaPathways;
 
 //	change to set wikiPathwaysURL to either live or the release candidate branch.
-	private static String wikipathwaysURL = "http://rcbranch.wikipathways.org/wpi/webservice2.0"; 
-//	private static String wikipathwaysURL = "http://webservice.wikipathways.org";
+//	private static String wikipathwaysURL = "http://rcbranch.wikipathways.org/wpi/webservice2.0"; 
+	private static String wikipathwaysURL = "http://webservice.wikipathways.org";
 
 	private final WikiPathwaysClient client;
 	private final String organism;
@@ -146,6 +146,13 @@ public class WpReactomeUploader {
 		System.out.println("Remove\t" + removePathways.size() + "\t" + removePathways);
 		
 		System.out.println("Metapathways\t" + metaPathways.size() + "\t" + metaPathways.keySet());
+		
+		// Check how many of the PWs that have to be removed are metaPWs:
+		Set<String> removemetaPathways = new HashSet<String>(metaPathways.keySet()); 
+		removemetaPathways.retainAll(removePathways);
+		
+		System.out.println("MetaPWs in Remove Set\t" + removemetaPathways.size() + "\t" + removemetaPathways);
+		
 	}
 
 	/**
