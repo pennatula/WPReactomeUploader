@@ -12,8 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.xml.rpc.ServiceException;
-
 import org.bridgedb.DataSource;
 import org.pathvisio.core.model.ConverterException;
 import org.pathvisio.core.model.ObjectType;
@@ -44,8 +42,7 @@ public class WPReactomeMap {
 	private final WikiPathwaysClient client;
 
 	public WPReactomeMap(File pathwayDir)
-			throws MalformedURLException,
-			ServiceException {
+			throws MalformedURLException {
 		client = new WikiPathwaysClient(new URL(wikipathwaysURL));
 		pathwayList = new HashSet<String>();
 		errorList = new ArrayList<String>();
@@ -88,8 +85,6 @@ public class WPReactomeMap {
 
 				wr.reannotatePathwayNodes();
 			} catch (MalformedURLException e) {
-				e.printStackTrace();
-			} catch (ServiceException e) {
 				e.printStackTrace();
 			} catch (RemoteException e) {
 				e.printStackTrace();
