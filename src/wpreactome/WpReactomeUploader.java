@@ -168,6 +168,10 @@ public class WpReactomeUploader {
 		Set<String> removePathways = new HashSet<String>(wpReactIds); 
 		removePathways.removeAll(newReactIds);
 		System.out.println("Remove\t" + removePathways.size() + "\t" + removePathways);
+		for(String r : removePathways) {
+			System.out.print(react2Wp.get(r) + "\t");
+		}
+		System.out.println();
 		
 		// how many meta pathways will not be uploaded?
 		System.out.println("Metapathways\t" + metaPathways.size() + "\t" + metaPathways.keySet());
