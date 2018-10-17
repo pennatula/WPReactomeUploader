@@ -27,14 +27,21 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import org.jdom.Element;
+import org.pathvisio.core.biopax.BiopaxElement;
+import org.pathvisio.core.biopax.BiopaxNode;
+import org.pathvisio.core.biopax.BiopaxProperty;
 import org.pathvisio.core.model.ConverterException;
+import org.pathvisio.core.model.GpmlFormat;
 import org.pathvisio.core.model.Pathway;
 import org.pathvisio.core.model.PathwayElement;
 import org.pathvisio.core.view.MIMShapes;
 import org.pathvisio.wikipathways.webservice.WSCurationTag;
 import org.pathvisio.wikipathways.webservice.WSHistoryRow;
+import org.pathvisio.wikipathways.webservice.WSOntologyTerm;
 import org.pathvisio.wikipathways.webservice.WSPathway;
 import org.pathvisio.wikipathways.webservice.WSPathwayHistory;
+import org.pathvisio.wikipathways.webservice.WSPathwayInfo;
 import org.wikipathways.client.WikiPathwaysClient;
 
 /**
@@ -80,9 +87,10 @@ public class WpReactomeUploader {
 					System.out.println("[INFO]\tGet Reactome pathways from local directory");
 					uploader.readLocalReactomeFiles();
 					
-					uploader.updatePathways();
-//					uploader.replacePathways();
-					
+					// only change to true after extensive checking and validating!
+					// then pathways will actually uploaded and updated in the database
+					// make sure appropriate user name and revision comment is set!
+					uploader.updatePathways(false);					
 				} else {
 					System.err.println("Invalid pathway directory or organism.");
 				}
@@ -111,8 +119,8 @@ public class WpReactomeUploader {
 	private Map<String, Pathway> metaPathways;
 
 //	change to set wikiPathwaysURL to either live or the release candidate branch.
-//	private static String wikipathwaysURL = "http://rcbranch.wikipathways.org/wpi/webservice2.0"; 
-	private static String wikipathwaysURL = "http://webservice.wikipathways.org";
+	private static String wikipathwaysURL = "http://rcbranch.wikipathways.org/wpi/webservice2.0"; 
+//	private static String wikipathwaysURL = "http://webservice.wikipathways.org";
 
 	private final WikiPathwaysClient client;
 	private final String organism;
@@ -145,8 +153,13 @@ public class WpReactomeUploader {
 	/**
 	 * Currently just printing stats
 	 * TODO: implement update / upload / tag for removal
+	 * @throws RemoteException 
 	 */
-	public void updatePathways() {
+	public void updatePathways(boolean uploadMode) throws RemoteException {
+		if(uploadMode) {
+			client.login(username, password);
+		}
+		
 		// check which pathways are in online and local files to be overwritten
 		Set<String> wpReactIds = react2Wp.keySet();
 		Set<String> newReactIds = newReactPathways.keySet();
@@ -155,6 +168,9 @@ public class WpReactomeUploader {
 		Set<String> toUpdate = new HashSet<String>(wpReactIds); 
 		toUpdate.retainAll(newReactIds);
 		System.out.println("Update\t" + toUpdate.size() + "\t" + toUpdate);
+		if(uploadMode) {
+			updateExistingPathways(toUpdate);
+		}
 		
 		// how many and which pathways have recent changes after release?
 		System.out.println("Curation changes\t" + wpCurated.size() + "\t" + wpCurated);
@@ -163,11 +179,18 @@ public class WpReactomeUploader {
 		Set<String> newPathways = new HashSet<String>(newReactIds);
 		newPathways.removeAll(wpReactIds);
 		System.out.println("New pathways\t" + newPathways.size() + "\t" + newPathways);
+		if(uploadMode) {
+			uploadNewPathways(newPathways);
+		}
 
 		// how many and which pathways are deprecated/replaced/split and should be removed
 		Set<String> removePathways = new HashSet<String>(wpReactIds); 
 		removePathways.removeAll(newReactIds);
-		System.out.println("Remove\t" + removePathways.size() + "\t" + removePathways);
+		System.out.print("Remove\t" + removePathways.size() + "\t");
+		for(String s : removePathways) {
+			System.out.print(react2Wp.get(s) + "\t");
+		}
+		System.out.println();
 		
 		// how many meta pathways will not be uploaded?
 		System.out.println("Metapathways\t" + metaPathways.size() + "\t" + metaPathways.keySet());
@@ -180,6 +203,70 @@ public class WpReactomeUploader {
 			System.out.print(react2Wp.get(s) + "\t");
 		}
 		System.out.println();
+	}
+	
+	/**
+	 * updates all existing pathways for the new reactome version
+	 */
+	private void updateExistingPathways(Set<String> pathways) {
+		for(String reactId : pathways) {
+			Pathway newP = newReactPathways.get(reactId);
+			String wpId = react2Wp.get(reactId);
+			try {
+				addExistingOntTags(wpId, newP);
+				client.updatePathway(wpId, newP, comment, 0);
+				System.out.println("[INFO]\tPathway was updated " + wpId + " (" + newP.getMappInfo().getMapInfoName() + ")");
+			} catch (RemoteException e) {
+				System.err.println("Could not update pathway " + wpId);
+			} catch (ConverterException e) {
+				System.err.println("Could not update pathway " + wpId);
+			}
+		}
+			
+	}
+	
+	/**
+	 * retrieves the ontology tags of the current WP version
+	 * of the pathway and adds it to the new GPML pathway version
+	 */
+	@SuppressWarnings("deprecation")
+	private void addExistingOntTags(String id, Pathway p) throws RemoteException {
+		WSOntologyTerm [] terms = client.getOntologyTermsByPathway(id);
+		BiopaxElement bp = p.getBiopax();
+		
+		//retrieving ontology tags from WP without overwriting them with nothing
+		for (WSOntologyTerm o : terms){
+			BiopaxNode bn = new BiopaxNode();
+			Element el = new Element("TERM");
+			el.setText(o.getName());
+			Element el1 = new Element("ID");
+			el1.setText(o.getId());
+			Element el2 = new Element("Ontology");
+			el2.setText(o.getOntology());
+			bn.addProperty(new BiopaxProperty(el));
+			bn.addProperty(new BiopaxProperty(el1));
+			bn.addProperty(new BiopaxProperty(el2));
+			bp.addElement(bn);
+			Element wrapped = bn.getWrapped();
+			wrapped.setName("openControlledVocabulary");
+			wrapped.removeAttribute("id", GpmlFormat.RDF);
+		}
+	}
+	
+	/**
+	 * Uploads all new pathways to WikiPathways
+	 */
+	private void uploadNewPathways(Set<String> pathways) {
+		for(String reactId : pathways) {
+			Pathway p = newReactPathways.get(reactId);
+			
+			try {
+				WSPathwayInfo wspi = client.createPathway(p);
+				System.out.println("[INFO]\tNew pathway added " + wspi.getId() + " (" + wspi.getName() + ")");
+			} catch (RemoteException | ConverterException e) {
+				System.err.println("Could not upload new Reactome pathway " + p.getMappInfo().getMapInfoName() + " (" + reactId + ")");
+			}
+		}
 	}
 
 	/**

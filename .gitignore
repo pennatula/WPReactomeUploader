@@ -2,3 +2,4 @@ ReactomeUploader/.settings*
 ReactomeUploader/bin
 .metadata*
 pathways/
+test/
