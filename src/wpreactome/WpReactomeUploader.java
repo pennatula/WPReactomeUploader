@@ -18,7 +18,10 @@ import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.rmi.RemoteException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -27,8 +30,11 @@ import java.util.Set;
 import org.pathvisio.core.model.ConverterException;
 import org.pathvisio.core.model.Pathway;
 import org.pathvisio.core.model.PathwayElement;
+import org.pathvisio.core.view.MIMShapes;
 import org.pathvisio.wikipathways.webservice.WSCurationTag;
+import org.pathvisio.wikipathways.webservice.WSHistoryRow;
 import org.pathvisio.wikipathways.webservice.WSPathway;
+import org.pathvisio.wikipathways.webservice.WSPathwayHistory;
 import org.wikipathways.client.WikiPathwaysClient;
 
 /**
@@ -49,27 +55,29 @@ public class WpReactomeUploader {
 	 * 3 = username used to upload pathways (should be ReactomeTeam)
 	 * 4 = password
 	 * 5 = update comment (shown in history - should contain Reactome version number)
+	 * 6 = date of last reactome update (YYYYmmdd)
 	 */
 	public static void main (String [] args) {
-		if(args.length == 5) {
+		if(args.length == 6) {
 			String org = args[0];
 			String pathwayDir = args[1];
 			String username = args[2];
 			String password = args[3];
 			String comment = args[4];
+			String date = args[5];
 			
 			WpReactomeUploader uploader;
 			try {
-				uploader = new WpReactomeUploader(org, new File(pathwayDir), username, password, comment);
+				uploader = new WpReactomeUploader(org, new File(pathwayDir), username, password, comment, date);
 				if(uploader.checkPathwayDir() && uploader.checkOrganism()) {
-					System.out.println("[INFO]: Valid settings:\n" + pathwayDir + "\t" + org);
+					System.out.println("[INFO]\tValid settings:\n" + pathwayDir + "\t" + org);
 					
 					// retrieve current Reactome pathways from WikiPathways
-					System.out.println("[INFO]: Get pathways from WikiPathways");
+					System.out.println("[INFO]\tGet pathways from WikiPathways");
 					uploader.retrieveReactomePathways();
 					
 					// load pathways from local folder
-					System.out.println("[INFO]: Get Reactome pathways from local directory");
+					System.out.println("[INFO]\tGet Reactome pathways from local directory");
 					uploader.readLocalReactomeFiles();
 					
 					uploader.updatePathways();
@@ -82,7 +90,10 @@ public class WpReactomeUploader {
 				System.err.println("Invalid webservice URL");
 			} catch (RemoteException e) {
 				System.err.println("Cannot retrieve data from webservice");
-			} 
+				e.printStackTrace();
+			} catch (ParseException e) {
+				System.err.println("Invalid last update date (format: YYYYmmdd");
+			}  
 		} else {
 			System.err.println("Invalid argument set.");
 		}
@@ -91,6 +102,9 @@ public class WpReactomeUploader {
 	// reactome pathways on WikiPathways
 	private Map<String, Pathway> wpPathways;
 	private Map<String, String> react2Wp;
+	
+	// pathways that have curation changes since last update
+	private Set<String> wpCurated;
 	
 	// new reactome pathways from local directory
 	private Map<String, Pathway> newReactPathways;
@@ -106,12 +120,15 @@ public class WpReactomeUploader {
 	private final String username;
 	private final String password;
 	private final String comment;
+	
+	private Date lastUpdate;
 
-	public WpReactomeUploader(String organism, File pathwayDir, String username, String password, String comment) throws MalformedURLException {
+	public WpReactomeUploader(String organism, File pathwayDir, String username, String password, String comment, String date) throws MalformedURLException, ParseException {
 		wpPathways = new HashMap<String, Pathway>();
 		react2Wp = new HashMap<String, String>();
 		newReactPathways = new HashMap<String, Pathway>();
 		metaPathways = new HashMap<String, Pathway>();
+		wpCurated = new HashSet<String>();
 		
 		client = new WikiPathwaysClient(new URL(wikipathwaysURL));
 		this.organism = organism;
@@ -119,6 +136,10 @@ public class WpReactomeUploader {
 		this.username = username;
 		this.password = password;
 		this.comment = comment;
+		SimpleDateFormat sdf = new SimpleDateFormat("yyyymmdd");
+		lastUpdate = sdf.parse(date);
+		
+		MIMShapes.registerShapes();
 	}
 	
 	/**
@@ -130,29 +151,35 @@ public class WpReactomeUploader {
 		Set<String> wpReactIds = react2Wp.keySet();
 		Set<String> newReactIds = newReactPathways.keySet();
 		
+		// how many and which pathways need to be updated?
 		Set<String> toUpdate = new HashSet<String>(wpReactIds); 
 		toUpdate.retainAll(newReactIds);
-		
 		System.out.println("Update\t" + toUpdate.size() + "\t" + toUpdate);
 		
+		// how many and which pathways have recent changes after release?
+		System.out.println("Curation changes\t" + wpCurated.size() + "\t" + wpCurated);
+		
+		// how many and which pathways need to be added to WP?
 		Set<String> newPathways = new HashSet<String>(newReactIds);
 		newPathways.removeAll(wpReactIds);
-		
 		System.out.println("New pathways\t" + newPathways.size() + "\t" + newPathways);
 
+		// how many and which pathways are deprecated/replaced/split and should be removed
 		Set<String> removePathways = new HashSet<String>(wpReactIds); 
 		removePathways.removeAll(newReactIds);
-		
 		System.out.println("Remove\t" + removePathways.size() + "\t" + removePathways);
 		
+		// how many meta pathways will not be uploaded?
 		System.out.println("Metapathways\t" + metaPathways.size() + "\t" + metaPathways.keySet());
 		
-		// Check how many of the PWs that have to be removed are metaPWs:
+		// are there any of the meta pathways on wikipathways?
 		Set<String> removemetaPathways = new HashSet<String>(metaPathways.keySet()); 
 		removemetaPathways.retainAll(removePathways);
-		
-		System.out.println("MetaPWs in Remove Set\t" + removemetaPathways.size() + "\t" + removemetaPathways);
-		
+		System.out.print("MetaPWs in Remove Set\t" + removemetaPathways.size() + "\t");
+		for(String s : removemetaPathways) {
+			System.out.print(react2Wp.get(s) + "\t");
+		}
+		System.out.println();
 	}
 
 	/**
@@ -212,6 +239,18 @@ public class WpReactomeUploader {
 			if(tag.getPathway().getSpecies().equals(organism)) {
 				try {
 					WSPathway wsp = client.getPathway(tag.getPathway().getId());
+					
+					// check if last changes on the pathways were made by the last release
+					WSPathwayHistory h = client.getPathwayHistory(wsp.getId(), lastUpdate);
+					if(h.getHistory().length > 0) {
+						WSHistoryRow last = h.getHistory(h.getHistory().length-1);
+						if(!last.getComment().contains("reactome version") 
+								&& !last.getComment().contains("New pathway") 
+								&& !last.getComment().contains("Reactome release")) {
+							wpCurated.add(wsp.getId());
+						}
+					}
+					
 					Pathway p = WikiPathwaysClient.toPathway(wsp);
 					
 					String reactId = p.getMappInfo().getDynamicProperty("reactome_id");
@@ -222,6 +261,7 @@ public class WpReactomeUploader {
 					wpPathways.put(tag.getPathway().getId(), p);
 					react2Wp.put(reactId, tag.getPathway().getId());
 				} catch (ConverterException e) {
+					e.printStackTrace();
 					System.err.println("Parsing error: " + tag.getPathway().getId());
 				}
 			}
