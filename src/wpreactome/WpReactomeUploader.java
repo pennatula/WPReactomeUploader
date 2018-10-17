@@ -173,6 +173,8 @@ public class WpReactomeUploader {
 		}
 		
 		// how many and which pathways have recent changes after release?
+		// these pathways need to be checked after the update and changes need to 
+		// be reintroduced if necessary
 		System.out.println("Curation changes\t" + wpCurated.size() + "\t" + wpCurated);
 		
 		// how many and which pathways need to be added to WP?
@@ -184,6 +186,7 @@ public class WpReactomeUploader {
 		}
 
 		// how many and which pathways are deprecated/replaced/split and should be removed
+		// need to be checked why they were not created by the converter!
 		Set<String> removePathways = new HashSet<String>(wpReactIds); 
 		removePathways.removeAll(newReactIds);
 		System.out.print("Remove\t" + removePathways.size() + "\t");
@@ -196,6 +199,7 @@ public class WpReactomeUploader {
 		System.out.println("Metapathways\t" + metaPathways.size() + "\t" + metaPathways.keySet());
 		
 		// are there any of the meta pathways on wikipathways?
+		// additional check for cleanup of reactome collection on WP
 		Set<String> removemetaPathways = new HashSet<String>(metaPathways.keySet()); 
 		removemetaPathways.retainAll(removePathways);
 		System.out.print("MetaPWs in Remove Set\t" + removemetaPathways.size() + "\t");
