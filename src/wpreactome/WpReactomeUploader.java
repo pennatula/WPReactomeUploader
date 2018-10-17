@@ -1,145 +1,246 @@
+// Copyright 2018 WikiPathways
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//    http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package wpreactome;
 
 import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.rmi.RemoteException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
-import org.jdom.Element;
-import org.pathvisio.core.biopax.BiopaxElement;
-import org.pathvisio.core.biopax.BiopaxNode;
-import org.pathvisio.core.biopax.BiopaxProperty;
 import org.pathvisio.core.model.ConverterException;
-import org.pathvisio.core.model.GpmlFormat;
-import org.pathvisio.core.model.OntologyTag;
 import org.pathvisio.core.model.Pathway;
 import org.pathvisio.core.model.PathwayElement;
 import org.pathvisio.wikipathways.webservice.WSCurationTag;
-import org.pathvisio.wikipathways.webservice.WSOntologyTerm;
 import org.pathvisio.wikipathways.webservice.WSPathway;
-import org.pathvisio.wikipathways.webservice.WSPathwayInfo;
 import org.wikipathways.client.WikiPathwaysClient;
 
+/**
+ * 
+ * Main class uploaded newly converted Reactome pathways
+ * to WikiPathways (updating existing pathways, uploading
+ * new pathways, removing outdated pathways)
+ * 
+ * @author anwesha, desl, mkutmon
+ *
+ */
 public class WpReactomeUploader {
 
 	/**
 	 * arguments:
 	 * 1 = organism
-	 * 2 = pathway directory
-	 * 3 = username
+	 * 2 = pathway directory containing converted Reactome pathway GPML files
+	 * 3 = username used to upload pathways (should be ReactomeTeam)
 	 * 4 = password
-	 * 5 = update comment
-	 * @param args
-	 * @throws MalformedURLException 
-	 * @throws ConverterException 
-	 * @throws RemoteException 
+	 * 5 = update comment (shown in history - should contain Reactome version number)
 	 */
-	public static void main (String [] args) throws MalformedURLException, RemoteException, ConverterException {
-		System.out.println(args.length + "\n");
-//		if(args.length == 4) {
-			//required arguments for the uploader script
-			String organism = "Homo sapiens";
-			String pathwayDir = args[0];
-			String username = args[1];
-			String password = args[2];
-			String comment = args[3];
-									
+	public static void main (String [] args) {
+		if(args.length == 5) {
+			String org = args[0];
+			String pathwayDir = args[1];
+			String username = args[2];
+			String password = args[3];
+			String comment = args[4];
+			
 			WpReactomeUploader uploader;
-
-//			WikiPathwaysClient client = new WikiPathwaysClient(new URL(wikipathwaysURL));
-			
-//			System.out.println(wrapped.getAttributeValue("id"));
-						
-			
-//			newPath.writeToXml(new File("/home/ryan/test.xml"),true );
-					
-
-			
-			
 			try {
-				uploader = new WpReactomeUploader(organism, new File(pathwayDir), username, password, comment);
-				try {
-					wpIDList.clear();
-					// System.out.println("reaches");
-					if(uploader.checkPathwayDir() && uploader.checkOrganism()) {
-						// System.out.println("pathway directory and organism are valid.\nretrieve pathways...");
-						 uploader.retrieveReactomePathways();
-						// // System.out.println(reactomePathwaysIDList);
-						// // System.out.println(reactomePathwaysIDList.size());
-						 uploader.readGpmlFiles();
-						 uploader.replacePathways();
-						// uploader.replacePathways();
-						/*
-						 * Script to replace pathways when WPID is known
-						 */
-						// File file = new File(
-						// "/home/anwesha/Plant_Primary_Metabolism_WP2499r75849.gpml");
-						// String wpid = "WP2499";
-//						File newReactomeFile = new File(
-//								"/home/martina/workspace/pathvisio/Abacavir transport and metabolism.gpml");
-//						String wpid = "WP4";
-//						uploader.replacePathwaysbyWPID(newReactomeFile, wpid,
-//								true);
-//						uploader.findMetapathways();
-					}
-				} catch (Exception e) {
-					System.out.println("could not retrieve pathways from wikipathways\n" + e.getMessage()+ "\n");
+				uploader = new WpReactomeUploader(org, new File(pathwayDir), username, password, comment);
+				if(uploader.checkPathwayDir() && uploader.checkOrganism()) {
+					System.out.println("[INFO]: Valid settings:\n" + pathwayDir + "\t" + org);
+					
+					// retrieve current Reactome pathways from WikiPathways
+					System.out.println("[INFO]: Get pathways from WikiPathways");
+					uploader.retrieveReactomePathways();
+					
+					// load pathways from local folder
+					System.out.println("[INFO]: Get Reactome pathways from local directory");
+					uploader.readLocalReactomeFiles();
+					
+					uploader.updatePathways();
+//					uploader.replacePathways();
+					
+				} else {
+					System.err.println("Invalid pathway directory or organism.");
 				}
-			} catch (Exception e1) {
-				e1.printStackTrace();
-				System.out.println("cannot connect to WP\t" + e1.getMessage()+ "\n");
+			} catch (MalformedURLException e) {
+				System.err.println("Invalid webservice URL");
+			} catch (RemoteException e) {
+				System.err.println("Cannot retrieve data from webservice");
 			} 
-			
-//		} else {
-//			System.out.println("please provide organism name, pathway directory, username, password, update comment.");
-//		}
+		} else {
+			System.err.println("Invalid argument set.");
+		}
 	}
+	
+	// reactome pathways on WikiPathways
+	private Map<String, Pathway> wpPathways;
+	private Map<String, String> react2Wp;
+	
+	// new reactome pathways from local directory
+	private Map<String, Pathway> newReactPathways;
+	private Map<String, Pathway> metaPathways;
 
 //	change to set wikiPathwaysURL to either live or the release candidate branch.
-	private static String wikipathwaysURL = "http://rcbranch.wikipathways.org/wpi/webservicetest"; 
+	private static String wikipathwaysURL = "http://rcbranch.wikipathways.org/wpi/webservice2.0"; 
 //	private static String wikipathwaysURL = "http://webservice.wikipathways.org";
 
-	private final Map<String, WSPathwayInfo> reactomePathways;
-	private static Map<String, String> wpIDList;
 	private final WikiPathwaysClient client;
 	private final String organism;
 	private final File pathwayDir;
-	private final Map<String, Pathway> pathwaysToUpload;
-	private final Map<String, String> wpReactomeIdMapper;
-	
 	private final String username;
 	private final String password;
 	private final String comment;
-//	int i = 2;
-	private final List<String> updatedPathways;
-	private final List<String> newPathways;
-	private final List<String> deletedPathways;
-	private List<OntologyTag> ontologyTags;
 
 	public WpReactomeUploader(String organism, File pathwayDir, String username, String password, String comment) throws MalformedURLException {
-		reactomePathways = new HashMap<String, WSPathwayInfo>();
-		wpIDList = new HashMap<String, String>();
+		wpPathways = new HashMap<String, Pathway>();
+		react2Wp = new HashMap<String, String>();
+		newReactPathways = new HashMap<String, Pathway>();
+		metaPathways = new HashMap<String, Pathway>();
+		
 		client = new WikiPathwaysClient(new URL(wikipathwaysURL));
 		this.organism = organism;
 		this.pathwayDir = pathwayDir;
-		wpReactomeIdMapper = new HashMap<String, String>();
-		pathwaysToUpload = new HashMap<String, Pathway>();
-		updatedPathways = new ArrayList<String>();
-		newPathways = new ArrayList<String>();
-		deletedPathways = new ArrayList<String>();
 		this.username = username;
 		this.password = password;
 		this.comment = comment;
 	}
 	
-	public boolean checkPathwayDir() {
+	/**
+	 * Currently just printing stats
+	 * TODO: implement update / upload / tag for removal
+	 */
+	public void updatePathways() {
+		// check which pathways are in online and local files to be overwritten
+		Set<String> wpReactIds = react2Wp.keySet();
+		Set<String> newReactIds = newReactPathways.keySet();
+		
+		Set<String> toUpdate = new HashSet<String>(wpReactIds); 
+		toUpdate.retainAll(newReactIds);
+		
+		System.out.println("Update\t" + toUpdate.size() + "\t" + toUpdate);
+		
+		Set<String> newPathways = new HashSet<String>(newReactIds);
+		newPathways.removeAll(wpReactIds);
+		
+		System.out.println("New pathways\t" + newPathways.size() + "\t" + newPathways);
+
+		Set<String> removePathways = new HashSet<String>(wpReactIds); 
+		removePathways.removeAll(newReactIds);
+		
+		System.out.println("Remove\t" + removePathways.size() + "\t" + removePathways);
+		
+		System.out.println("Metapathways\t" + metaPathways.size() + "\t" + metaPathways.keySet());
+	}
+
+	/**
+	 * Reads all local GPML files of newly converted
+	 * Reactome pathways - need to be created with
+	 * Reactome2GPML converter
+	 */
+	public void readLocalReactomeFiles() {
+		for(File file : pathwayDir.listFiles()) {
+			try {
+				Pathway pathway = new Pathway();
+				pathway.readFromXml(file, false);
+					
+				String reactId = pathway.getMappInfo().getDynamicProperty("reactome_id");
+				if(reactId.equals("")) {
+					System.err.println("Reactome pathway without valid Comment!!! " + file.getName());
+					System.exit(0);
+				}
+				
+				// check if pathway is meta pathway
+				if(!isMetaPathway(pathway)) {			
+					newReactPathways.put(reactId, pathway);
+				} else {
+					metaPathways.put(reactId, pathway);
+				}
+			} catch (ConverterException e) {
+				System.err.println("Parsing error: " + file.getName());
+			}
+		}
+		System.out.println("[INFO]: Loaded " + newReactPathways.size() + " valid Reactome pathways from file out of " + pathwayDir.listFiles().length);
+		System.out.println(newReactPathways);
+	}
+	
+	/**
+	 * checks if pathway contains actual pathway elements
+	 * or only pathway nodes = meta pathway
+	 */
+	private boolean isMetaPathway(Pathway p) {
+		for(PathwayElement dn : p.getDataObjects()){
+			if(dn.getDataNodeType().equals("Protein") ||
+				dn.getDataNodeType().equals("Metabolite") ||
+				dn.getDataNodeType().equals("Complex") ||
+				dn.getDataNodeType().equals("GeneProduct") ||
+				dn.getDataNodeType().equals("RNA")) {
+				return false;
+			}
+		}
+		return true;
+	}
+	
+	/**
+	 * use webservice to retrieve current Reactome pathways
+	 */
+	public void retrieveReactomePathways() throws RemoteException {
+		WSCurationTag [] tags = client.getCurationTagsByName("Curation:Reactome_Approved");
+		for(WSCurationTag tag : tags) {
+			if(tag.getPathway().getSpecies().equals(organism)) {
+				try {
+					WSPathway wsp = client.getPathway(tag.getPathway().getId());
+					Pathway p = WikiPathwaysClient.toPathway(wsp);
+					
+					String reactId = p.getMappInfo().getDynamicProperty("reactome_id");
+					if(reactId.equals("")) {
+						System.err.println("Reactome pathway without valid Comment!!! " + tag.getPathway().getId());
+						System.exit(0);
+					}
+					wpPathways.put(tag.getPathway().getId(), p);
+					react2Wp.put(reactId, tag.getPathway().getId());
+				} catch (ConverterException e) {
+					System.err.println("Parsing error: " + tag.getPathway().getId());
+				}
+			}
+		}
+		System.out.println("[INFO]\t" + wpPathways.size() + " pathways loaded from WikiPathways.");
+		System.out.println(react2Wp);
+		System.out.println(wpPathways);
+	}
+	
+	/**
+	 * checks if organism
+	 */
+	private boolean checkOrganism() throws RemoteException {
+		String [] organisms = client.listOrganisms();
+		if(Arrays.asList(organisms).contains(organism)) {
+			return true;
+		}
+		return false;
+	}
+	
+	/**
+	 * checks if pathway directory exists and contains
+	 * GPML files
+	 */
+	private boolean checkPathwayDir() {
 		if(!pathwayDir.exists()) {
-			System.out.println("directory does not exist\t" + pathwayDir.getAbsolutePath()+ "\n");
 			return false;
 		} 
 		if(pathwayDir.isDirectory()) {
@@ -149,139 +250,84 @@ public class WpReactomeUploader {
 				}
 			}
 		}
-		System.out.println("Location is no directory or does not contain gpml files.\t" + pathwayDir.getAbsolutePath()+ "\n");
 		return false;
 	}
 	
-	//checks pathways to be replaced
-	public void replacePathways() {
-		try {
-			client.login(username, password);
-		} catch (RemoteException e) {
-			System.out.println("not able to use this user. check password and permission status.\n");
-		}
-		
-		//checks pathway names
-		for(String name : pathwaysToUpload.keySet()) {
-			Pathway p = pathwaysToUpload.get(name);
-//			p.getMappInfo().addComment("Pathway is converted from Reactome id: ", "Reactome Converter");
-			if(reactomePathways.containsKey(name)) {
-				String id = reactomePathways.get(name).getId();
-				try{
-					System.out.println("UPDATING\t" + name + "\t" + id + "\n");
-					String revision = reactomePathways.get(name).getRevision();
-					System.out.println("revision"+revision + "\n");
-
-					WSPathway wpPathway = client.getPathway(id);
-					WSOntologyTerm [] terms = client.getOntologyTermsByPathway(wpPathway.getId());
-					
-					BiopaxElement bp = p.getBiopax();
-					
-					//retrieving ontology tags from WP without overwriting them with nothing
-					for (WSOntologyTerm o : terms){
-						BiopaxNode bn = new BiopaxNode();
-						Element el = new Element("TERM");
-						el.setText(o.getName());
-						Element el1 = new Element("ID");
-						el1.setText(o.getId());
-						Element el2 = new Element("Ontology");
-						el2.setText(o.getOntology());
-						bn.addProperty(new BiopaxProperty(el));
-						bn.addProperty(new BiopaxProperty(el1));
-						bn.addProperty(new BiopaxProperty(el2));
-						bp.addElement(bn);
-						Element wrapped = bn.getWrapped();
-						wrapped.setName("openControlledVocabulary");
-						wrapped.removeAttribute("id", GpmlFormat.RDF);
-					}
-					
-					//comment below writes to XML file for testing
-//					p.writeToXml(new File("test"+info.getId()+".gpml"),true );
-
-					client.updatePathway(id, p, comment, Integer.parseInt(revision));
-					WSPathwayInfo newPwy = client.getPathwayInfo(id);
-					//deletes old curation tag and reapplies the tag to the new pathway
-					client.removeCurationTag(id, "Curation:Reactome_Approved");
-					client.saveCurationTag(id, "Curation:Reactome_Approved", comment, Integer.parseInt(newPwy.getRevision()));
-					updatedPathways.add(id + ": " + name);
-					
-				} catch(Exception e) {
-					System.out.println("could not update pathways or curation tag for " + id + "\n");
-				}
-			} else {
-				try {
-					WSPathwayInfo info = client.createPathway(p);
-					client.saveCurationTag(info.getId(), "Curation:Reactome_Approved", comment, Integer.parseInt(info.getRevision()));
-					newPathways.add(info.getId() + ": " + info.getName());
-					System.out.println("NEW PATHWAY\t" + name + "\t" + "\n" /* + info.getId()*/);
-				} catch(Exception e) {
-					System.out.println("could not upload new pathway " + name + "\n");
-				}
-			}
-		}
-		
-//		for(String name : reactomePathways.keySet()) {
-//			if(!pathwaysToUpload.containsKey(name)) {
-//				deletedPathways.add(reactomePathways.get(name).getId() + ": " + name);
+//	//checks pathways to be replaced
+//		public void replacePathways() {
+//			try {
+//				client.login(username, password);
+//			} catch (RemoteException e) {
+//				System.out.println("not able to use this user. check password and permission status.\n");
 //			}
+//			
+//			//checks pathway names
+//			for(String name : pathwaysToUpload.keySet()) {
+//				Pathway p = pathwaysToUpload.get(name);
+////				p.getMappInfo().addComment("Pathway is converted from Reactome id: ", "Reactome Converter");
+//				if(reactomePathways.containsKey(name)) {
+//					String id = reactomePathways.get(name).getId();
+//					try{
+//						System.out.println("UPDATING\t" + name + "\t" + id + "\n");
+//						String revision = reactomePathways.get(name).getRevision();
+//						System.out.println("revision"+revision + "\n");
+//
+//						WSPathway wpPathway = client.getPathway(id);
+//						WSOntologyTerm [] terms = client.getOntologyTermsByPathway(wpPathway.getId());
+//						
+//						BiopaxElement bp = p.getBiopax();
+//						
+//						//retrieving ontology tags from WP without overwriting them with nothing
+//						for (WSOntologyTerm o : terms){
+//							BiopaxNode bn = new BiopaxNode();
+//							Element el = new Element("TERM");
+//							el.setText(o.getName());
+//							Element el1 = new Element("ID");
+//							el1.setText(o.getId());
+//							Element el2 = new Element("Ontology");
+//							el2.setText(o.getOntology());
+//							bn.addProperty(new BiopaxProperty(el));
+//							bn.addProperty(new BiopaxProperty(el1));
+//							bn.addProperty(new BiopaxProperty(el2));
+//							bp.addElement(bn);
+//							Element wrapped = bn.getWrapped();
+//							wrapped.setName("openControlledVocabulary");
+//							wrapped.removeAttribute("id", GpmlFormat.RDF);
+//						}
+//						
+//						//comment below writes to XML file for testing
+////						p.writeToXml(new File("test"+info.getId()+".gpml"),true );
+//
+//						client.updatePathway(id, p, comment, Integer.parseInt(revision));
+//						WSPathwayInfo newPwy = client.getPathwayInfo(id);
+//						//deletes old curation tag and reapplies the tag to the new pathway
+//						client.removeCurationTag(id, "Curation:Reactome_Approved");
+//						client.saveCurationTag(id, "Curation:Reactome_Approved", comment, Integer.parseInt(newPwy.getRevision()));
+//						updatedPathways.add(id + ": " + name);
+//						
+//					} catch(Exception e) {
+//						System.out.println("could not update pathways or curation tag for " + id + "\n");
+//					}
+//				} else {
+//					try {
+//						WSPathwayInfo info = client.createPathway(p);
+//						client.saveCurationTag(info.getId(), "Curation:Reactome_Approved", comment, Integer.parseInt(info.getRevision()));
+//						newPathways.add(info.getId() + ": " + info.getName());
+//						System.out.println("NEW PATHWAY\t" + name + "\t" + "\n" /* + info.getId()*/);
+//					} catch(Exception e) {
+//						System.out.println("could not upload new pathway " + name + "\n");
+//					}
+//				}
+//			}
+//			
+////			for(String name : reactomePathways.keySet()) {
+////				if(!pathwaysToUpload.containsKey(name)) {
+////					deletedPathways.add(reactomePathways.get(name).getId() + ": " + name);
+////				}
+////			}
+//			System.out.println("Wikipathways ID list" + wpIDList + "\n");
+//			System.out.println("Updated pathways\t" + updatedPathways.size() + "\t" + updatedPathways + "\n");
+//			System.out.println("New pathways\t" + newPathways.size() + "\t" + newPathways + "\n");
+//			System.out.println("Deleted pathways\t" + deletedPathways.size() + "\t" + deletedPathways + "\n");
 //		}
-		System.out.println("Wikipathways ID list" + wpIDList + "\n");
-		System.out.println("Updated pathways\t" + updatedPathways.size() + "\t" + updatedPathways + "\n");
-		System.out.println("New pathways\t" + newPathways.size() + "\t" + newPathways + "\n");
-		System.out.println("Deleted pathways\t" + deletedPathways.size() + "\t" + deletedPathways + "\n");
-	}
-
-	 
-	//read in the GPML files
-	public void readGpmlFiles() {
-		for(File file : pathwayDir.listFiles()) {
-				try {
-					Pathway pathway = new Pathway();
-					pathway.readFromXml(file, true);
-					int flag = 0;
-					for( PathwayElement dn : pathway.getDataObjects()){
-						
-
-						
-						if ( (dn.getDataNodeType().equals("Unknown")) ||							
-						(dn.getDataNodeType().equals("Pathway")))
-							flag++;
-					}
-
-					if (flag!=pathway.getDataObjects().size()){
-//						System.out.println("meta pwy:	" + pathway.getSourceFile());
-						pathwaysToUpload.put(pathway.getMappInfo()
-									.getMapInfoName(), pathway);
-
-//						System.out.println(pathway.getSourceFile());
-					}
-			} catch (ConverterException e) {
-					System.out.println("could not parse pathway from " + file.getAbsolutePath() + "\n");
-				}
-		}
-	}
-	
-	//sets curation tag to to 'Reactome_Approved'
-	public void retrieveReactomePathways() throws Exception {
-		WSCurationTag [] tags = client.getCurationTagsByName("Curation:Reactome_Approved");
-		for(WSCurationTag tag : tags) {
-			if(tag.getPathway().getSpecies().equals(organism)) {
-				System.out.println(tag.getPathway().getName() + "\n");
-				reactomePathways.put(tag.getPathway().getName(), tag.getPathway());
-				wpIDList.put(tag.getPathway().getName(), tag
-						.getPathway().getId());
-
-			}
-		}
-		System.out.println(reactomePathways.size() + " pathways found.\n");
-	}
-	
-	private boolean checkOrganism() throws RemoteException {
-		String [] organisms = client.listOrganisms();
-		System.out.println(Arrays.asList(organisms) + "\n");
-		if(Arrays.asList(organisms).contains(organism)) {
-			return true;
-		}
-		return false;
-	}
 }
