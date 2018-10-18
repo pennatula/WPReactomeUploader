@@ -10,5 +10,5 @@ After setting up the project in Eclipse, testing should be performed on a RCbran
 
 
 *** In Eclipse in the appropriate workspace, click on 'Window' -> 'Preferences'.
-*** In the search field, enter encoding. Click under 'General' on 'Workspace'.
-*** Set at 'Text File Encoding' (bottom left) UTF-8 under 'Other'.
+In the search field, enter encoding. Click under 'General' on 'Workspace'.
+Set at 'Text File Encoding' (bottom left) UTF-8 under 'Other'.
