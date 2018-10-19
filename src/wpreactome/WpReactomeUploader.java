@@ -88,9 +88,10 @@ public class WpReactomeUploader {
 					uploader.readLocalReactomeFiles();
 					
 					// only change to true after extensive checking and validating!
-					// then pathways will actually uploaded and updated in the database
-					// make sure appropriate user name and revision comment is set!
-					uploader.updatePathways(false);					
+					// First upload to RC branch, check again (with developers community).
+					// Then upload and update in the WPs database
+					// make sure appropriate user name and revision comment is set in run configuration!
+					uploader.updatePathways(true);					
 				} else {
 					System.err.println("Invalid pathway directory or organism.");
 				}
@@ -130,6 +131,8 @@ public class WpReactomeUploader {
 	private final String comment;
 	
 	private Date lastUpdate;
+	
+	private Boolean updateMode = false;
 
 	public WpReactomeUploader(String organism, File pathwayDir, String username, String password, String comment, String date) throws MalformedURLException, ParseException {
 		wpPathways = new HashMap<String, Pathway>();
@@ -156,7 +159,8 @@ public class WpReactomeUploader {
 	 * @throws RemoteException 
 	 */
 	public void updatePathways(boolean uploadMode) throws RemoteException {
-		if(uploadMode) {
+		updateMode = uploadMode;
+		if(updateMode) {
 			client.login(username, password);
 		}
 		
@@ -168,20 +172,22 @@ public class WpReactomeUploader {
 		Set<String> toUpdate = new HashSet<String>(wpReactIds); 
 		toUpdate.retainAll(newReactIds);
 		System.out.println("Update\t" + toUpdate.size() + "\t" + toUpdate);
-		if(uploadMode) {
+		if(updateMode) {
 			updateExistingPathways(toUpdate);
 		}
 		
-		// how many and which pathways have recent changes after release?
-		// these pathways need to be checked after the update and changes need to 
-		// be reintroduced if necessary
-		System.out.println("Curation changes\t" + wpCurated.size() + "\t" + wpCurated);
+		if(!updateMode) {
+			// how many and which pathways have recent changes after release?
+			// these pathways need to be checked after the update and changes need to 
+			// be reintroduced if necessary
+			System.out.println("Curation changes\t" + wpCurated.size() + "\t" + wpCurated);
+		}
 		
 		// how many and which pathways need to be added to WP?
 		Set<String> newPathways = new HashSet<String>(newReactIds);
 		newPathways.removeAll(wpReactIds);
 		System.out.println("New pathways\t" + newPathways.size() + "\t" + newPathways);
-		if(uploadMode) {
+		if(updateMode) {
 			uploadNewPathways(newPathways);
 		}
 
@@ -217,8 +223,9 @@ public class WpReactomeUploader {
 			Pathway newP = newReactPathways.get(reactId);
 			String wpId = react2Wp.get(reactId);
 			try {
+				WSPathwayInfo wspi = client.getPathwayInfo(wpId);
 				addExistingOntTags(wpId, newP);
-				client.updatePathway(wpId, newP, comment, 0);
+				client.updatePathway(wpId, newP, comment, Integer.parseInt(wspi.getRevision()));
 				System.out.println("[INFO]\tPathway was updated " + wpId + " (" + newP.getMappInfo().getMapInfoName() + ")");
 			} catch (RemoteException e) {
 				System.err.println("Could not update pathway " + wpId);
@@ -331,14 +338,16 @@ public class WpReactomeUploader {
 				try {
 					WSPathway wsp = client.getPathway(tag.getPathway().getId());
 					
-					// check if last changes on the pathways were made by the last release
-					WSPathwayHistory h = client.getPathwayHistory(wsp.getId(), lastUpdate);
-					if(h.getHistory().length > 0) {
-						WSHistoryRow last = h.getHistory(h.getHistory().length-1);
-						if(!last.getComment().contains("reactome version") 
-								&& !last.getComment().contains("New pathway") 
-								&& !last.getComment().contains("Reactome release")) {
-							wpCurated.add(wsp.getId());
+					if(!updateMode) {
+						// check if last changes on the pathways were made by the last release
+						WSPathwayHistory h = client.getPathwayHistory(wsp.getId(), lastUpdate);
+						if(h.getHistory().length > 0) {
+							WSHistoryRow last = h.getHistory(h.getHistory().length-1);
+							if(!last.getComment().contains("reactome version") 
+									&& !last.getComment().contains("New pathway") 
+									&& !last.getComment().contains("Reactome release")) {
+								wpCurated.add(wsp.getId());
+							}
 						}
 					}
 					
