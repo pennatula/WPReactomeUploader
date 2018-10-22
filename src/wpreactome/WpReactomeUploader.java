@@ -91,7 +91,7 @@ public class WpReactomeUploader {
 					// First upload to RC branch, check again (with developers community).
 					// Then upload and update in the WPs database
 					// make sure appropriate user name and revision comment is set in run configuration!
-					uploader.updatePathways(true);					
+					uploader.updatePathways(false);					
 				} else {
 					System.err.println("Invalid pathway directory or organism.");
 				}
