@@ -273,13 +273,9 @@ public class WpReactomeUploader {
 	private void uploadNewPathways(Set<String> pathways) {
 		for(String reactId : pathways) {
 			Pathway p = newReactPathways.get(reactId);
-			
 			try {
 				WSPathwayInfo wspi = client.createPathway(p);
-	//			client.saveCurationTag(info.getId(), "Curation:Reactome_Approved", comment, Integer.parseInt(info.getRevision()));
-	//			client.removeCurationTag(id, "Curation:Reactome_Approved");
-//				client.saveCurationTag(id, "Curation:Reactome_Approved", comment, Integer.parseInt(newPwy.getRevision()));
-				
+				client.saveCurationTag(wspi.getId(), "Curation:Reactome_Approved", comment, Integer.parseInt(wspi.getRevision()));	
 				System.out.println("[INFO]\tNew pathway added " + wspi.getId() + " (" + wspi.getName() + ")");
 			} catch (RemoteException | ConverterException e) {
 				System.err.println("Could not upload new Reactome pathway " + p.getMappInfo().getMapInfoName() + " (" + reactId + ")");
