@@ -227,6 +227,10 @@ public class WpReactomeUploader {
 				WSPathwayInfo wspi = client.getPathwayInfo(wpId);
 				addExistingOntTags(wpId, newP);
 				client.updatePathway(wpId, newP, comment, Integer.parseInt(wspi.getRevision()));
+				WSPathwayInfo wspi1 = client.getPathwayInfo(wpId);
+				//deletes old Curation tag and Reapplies the tag to the new pathway
+				client.removeCurationTag(wpId, "Curation:Reactome_Approved");
+				client.saveCurationTag(wpId, "Curation:Reactome_Approved", comment, Integer.parseInt(wspi1.getRevision()));
 				System.out.println("[INFO]\tPathway was updated " + wpId + " (" + newP.getMappInfo().getMapInfoName() + ")");
 			} catch (RemoteException | ConverterException e) {
 				System.err.println("Could not update pathway " + wpId);
@@ -272,6 +276,10 @@ public class WpReactomeUploader {
 			
 			try {
 				WSPathwayInfo wspi = client.createPathway(p);
+	//			client.saveCurationTag(info.getId(), "Curation:Reactome_Approved", comment, Integer.parseInt(info.getRevision()));
+	//			client.removeCurationTag(id, "Curation:Reactome_Approved");
+//				client.saveCurationTag(id, "Curation:Reactome_Approved", comment, Integer.parseInt(newPwy.getRevision()));
+				
 				System.out.println("[INFO]\tNew pathway added " + wspi.getId() + " (" + wspi.getName() + ")");
 			} catch (RemoteException | ConverterException e) {
 				System.err.println("Could not upload new Reactome pathway " + p.getMappInfo().getMapInfoName() + " (" + reactId + ")");
