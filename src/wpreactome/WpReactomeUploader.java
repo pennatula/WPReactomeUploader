@@ -213,6 +213,7 @@ public class WpReactomeUploader {
 			System.out.print(react2Wp.get(s) + "\t");
 		}
 		System.out.println();
+
 	}
 	
 	/**
@@ -227,9 +228,7 @@ public class WpReactomeUploader {
 				addExistingOntTags(wpId, newP);
 				client.updatePathway(wpId, newP, comment, Integer.parseInt(wspi.getRevision()));
 				System.out.println("[INFO]\tPathway was updated " + wpId + " (" + newP.getMappInfo().getMapInfoName() + ")");
-			} catch (RemoteException e) {
-				System.err.println("Could not update pathway " + wpId);
-			} catch (ConverterException e) {
+			} catch (RemoteException | ConverterException e) {
 				System.err.println("Could not update pathway " + wpId);
 			}
 		}
@@ -355,7 +354,7 @@ public class WpReactomeUploader {
 					
 					String reactId = p.getMappInfo().getDynamicProperty("reactome_id");
 					if(reactId.equals("")) {
-						System.err.println("Reactome pathway without valid Comment!!! " + tag.getPathway().getId());
+						System.err.println("Reactome pathway without valid Attribute Key (should contain original Reactome pathway ID)!!! " + tag.getPathway().getId());
 						System.exit(0);
 					}
 					wpPathways.put(tag.getPathway().getId(), p);
@@ -372,7 +371,7 @@ public class WpReactomeUploader {
 	}
 	
 	/**
-	 * checks if organism
+	 * checks if organism is annotated
 	 */
 	private boolean checkOrganism() throws RemoteException {
 		String [] organisms = client.listOrganisms();
