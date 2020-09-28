@@ -11,5 +11,5 @@ After setting up the project in Eclipse, testing should be performed on a RCbran
  HOW TO IMPORT IN ECLIPSE 
 ****************************
 
-For detailed instructions, please see: https://github.com/PathVisio/pathvisio/wiki/PathVisio-setup-in-Eclipse
+For detailed instructions, please see: https://github.com/wikipathways/WPReactomeUploader/wiki/Uploader-setup-in-Eclipse
 
